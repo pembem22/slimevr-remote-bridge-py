@@ -53,13 +53,13 @@ async def sender(channel: RTCDataChannel):
 
         assert isinstance(message, bytes)
         ip = socket.inet_ntoa(message[0:4])
-        port = int.from_bytes(message[4:6])
+        port = int.from_bytes(message[4:6], 'big')
         data = message[6:]
         udp.send(data, (ip, port))
 
     while True:
         data, (ip, port) = await udp.receive()
-        packet = socket.inet_aton(ip) + port.to_bytes(2) + data
+        packet = socket.inet_aton(ip) + port.to_bytes(2, 'big') + data
         channel.send(packet)
 
 
