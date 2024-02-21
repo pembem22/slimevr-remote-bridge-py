@@ -12,7 +12,55 @@ from aiortc import (
 )
 from aiortc.contrib.signaling import object_from_string, object_to_string
 
-from aioudp import open_remote_endpoint, Endpoint
+from aioudp import open_remote_endpoint, open_local_endpoint, Endpoint
+
+
+async def receiver(channel: RTCDataChannel):
+    mac_to_socket: Dict[bytes, Endpoint] = dict()
+
+    @channel.on("message")
+    async def on_message(message: str | bytes):
+        nonlocal mac_to_socket
+
+        assert isinstance(message, bytes)
+        mac = message[0:6]
+        data = message[6:]
+
+        if mac not in mac_to_socket:
+            sock = await open_remote_endpoint("127.0.0.1", 6969)
+            mac_to_socket[mac] = sock
+
+            async def socket_loop():
+                assert channel is not None
+                current_mac = mac[:]
+                while True:
+                    data, address = await sock.receive()
+                    channel.send(current_mac + data)
+
+            asyncio.create_task(socket_loop())
+
+        sock = mac_to_socket[mac]
+        sock.send(data)
+
+
+async def sender(channel: RTCDataChannel):
+    udp = await open_local_endpoint("0.0.0.0", 6969)
+
+    channel.on("message")
+
+    async def on_message(message: str | bytes):
+        nonlocal udp
+
+        assert isinstance(message, bytes)
+        ip = socket.inet_ntoa(message[0:4])
+        port = int.from_bytes(message[4:6])
+        data = message[6:]
+        udp.send(data, (ip, port))
+
+    while True:
+        data, (ip, port) = await udp.receive()
+        packet = socket.inet_aton(ip) + port.to_bytes(2) + data
+        channel.send(packet)
 
 
 async def offer(pc: RTCPeerConnection):
@@ -85,32 +133,10 @@ async def main():
 
     assert channel is not None
 
-    mac_to_socket: Dict[bytes, Endpoint] = dict()
-
-    @channel.on("message")
-    async def on_message(message: str | bytes):
-        nonlocal mac_to_socket
-
-        assert isinstance(message, bytes)
-        mac = message[0:6]
-        data = message[6:]
-
-        if role == "offer":
-            if mac not in mac_to_socket:
-                sock = await open_remote_endpoint("127.0.0.1", 6969)
-                mac_to_socket[mac] = sock
-
-                async def socket_loop():
-                    assert channel is not None
-                    current_mac = mac[:]
-                    while True:
-                        data, address = await sock.receive()
-                        channel.send(current_mac + data)
-
-                asyncio.create_task(socket_loop())
-
-            sock = mac_to_socket[mac]
-            sock.send(data)
+    if role == "offer":
+        await receiver(channel)
+    else:
+        await sender(channel)
 
 
 if __name__ == "__main__":
