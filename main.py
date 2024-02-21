@@ -31,10 +31,9 @@ async def receiver(channel: RTCDataChannel):
             mac_to_socket[mac] = sock
 
             async def socket_loop():
-                assert channel is not None
                 current_mac = mac[:]
                 while True:
-                    data, address = await sock.receive()
+                    data = await sock.receive()
                     channel.send(current_mac + data)
 
             asyncio.create_task(socket_loop())
@@ -46,20 +45,19 @@ async def receiver(channel: RTCDataChannel):
 async def sender(channel: RTCDataChannel):
     udp = await open_local_endpoint("0.0.0.0", 6969)
 
-    channel.on("message")
-
-    async def on_message(message: str | bytes):
+    @channel.on("message")
+    def on_message(message: str | bytes):
         nonlocal udp
 
         assert isinstance(message, bytes)
         ip = socket.inet_ntoa(message[0:4])
-        port = int.from_bytes(message[4:6], 'big')
+        port = int.from_bytes(message[4:6], "big")
         data = message[6:]
         udp.send(data, (ip, port))
 
     while True:
         data, (ip, port) = await udp.receive()
-        packet = socket.inet_aton(ip) + port.to_bytes(2, 'big') + data
+        packet = socket.inet_aton(ip) + port.to_bytes(2, "big") + data
         channel.send(packet)
 
 
