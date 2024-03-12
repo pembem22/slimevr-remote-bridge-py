@@ -5,7 +5,6 @@ import socket
 from typing import Any, Dict
 
 from aiortc import (
-    RTCIceCandidate,
     RTCPeerConnection,
     RTCSessionDescription,
     RTCDataChannel,
@@ -16,29 +15,32 @@ from aioudp import open_remote_endpoint, open_local_endpoint, Endpoint
 
 
 async def receiver(channel: RTCDataChannel):
-    mac_to_socket: Dict[bytes, Endpoint] = dict()
+    addr_port_to_socket: Dict[bytes, Endpoint] = dict()
 
     @channel.on("message")
     async def on_message(message: str | bytes):
-        nonlocal mac_to_socket
+        nonlocal addr_port_to_socket
 
         assert isinstance(message, bytes)
-        mac = message[0:6]
+        addr_port = message[0:6]
         data = message[6:]
 
-        if mac not in mac_to_socket:
-            sock = await open_remote_endpoint("127.0.0.1", 6969)
-            mac_to_socket[mac] = sock
+        if addr_port not in addr_port_to_socket:
+            ip = socket.inet_ntoa(addr_port[0:4])
+            sock = await open_remote_endpoint(
+                "127.0.0.1", 9000 if ip == "127.0.0.1" else 6969
+            )
+            addr_port_to_socket[addr_port] = sock
 
             async def socket_loop():
-                current_mac = mac[:]
+                current_addr_port = addr_port[:]
                 while True:
                     data = await sock.receive()
-                    channel.send(current_mac + data)
+                    channel.send(current_addr_port + data)
 
             asyncio.create_task(socket_loop())
 
-        sock = mac_to_socket[mac]
+        sock = addr_port_to_socket[addr_port]
         sock.send(data)
 
 
